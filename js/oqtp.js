@@ -68,8 +68,26 @@ export function buildDroplet(tid, seed, payload) {
   return p;
 }
 
-export function buildMeta(tid, metaObj) {
-  const json = new TextEncoder().encode(JSON.stringify(metaObj));
+/**
+ * Metadata frame, optionally padded out to an exact byte length.
+ *
+ * A metadata frame carries less than a droplet does, so left alone it encodes
+ * to a lower QR version and visibly shrinks on screen every time one comes
+ * round. Padding it to the same length as a droplet keeps every frame at the
+ * same module count, so the code never changes size — which is easier to look
+ * at and saves the camera re-acquiring a code that just moved.
+ */
+export function buildMeta(tid, metaObj, targetLen) {
+  let text = JSON.stringify(metaObj);
+  if (targetLen) {
+    const need = targetLen - (META_HEADER + new TextEncoder().encode(text).length + CRC_LEN);
+    // ,"_":"" is the shortest padding key that keeps the JSON valid.
+    if (need >= 7) {
+      metaObj = Object.assign({}, metaObj, { _: '.'.repeat(need - 7) });
+      text = JSON.stringify(metaObj);
+    }
+  }
+  const json = new TextEncoder().encode(text);
   const p = new Uint8Array(META_HEADER + json.length + CRC_LEN);
   const dv = new DataView(p.buffer);
   p[0] = MAGIC;
