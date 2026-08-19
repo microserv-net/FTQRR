@@ -2,6 +2,7 @@ import { parsePacket, formatBytes, formatDuration, unb64 } from './oqtp.js';
 import { FountainDecoder } from './fountain-decoder.js';
 import { createStore } from './store.js';
 import { hashBlob } from './sha256.js';
+import { BENCH_FRAME_PNG, BENCH_FRAME_BYTES } from './bench-frame.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,6 +30,9 @@ const state = {
   capacity: 0,      // frames per second this camera+CPU can examine
   goodput: 0,       // bytes per second of the file actually arriving
   peakGoodput: 0,
+  benchCapacity: 0, // frames/second measured before any camera was opened
+  benchAtSize: 0,
+  capScaled: false,
   lastSampleAt: 0,
   rate: 0,
   hitRate: 0,
@@ -63,6 +67,105 @@ function show(stage) {
   window.scrollTo({ top: 0 });
 }
 
+/* ────────────────  what this device can read, measured up front  ────────────────
+
+   The number that decides how fast a transfer actually goes is not the rate
+   the sender displays at — it is the rate this device can examine frames at.
+   Timing it before the camera opens means the person can tell the sender what
+   to set, instead of both ends guessing and then wondering why nothing lands.
+
+   The benchmark runs a real OQTP frame through the real decoder at the real
+   capture resolution, so the only thing it flatters is image quality. */
+
+let benchResolve = null;
+
+async function measureCapacity() {
+  const el = $('capability');
+  const say = (html, busy) => {
+    el.className = 'capability' + (busy ? ' is-busy' : '');
+    el.innerHTML = '<span class="capability__pulse" aria-hidden="true"></span>' + html;
+  };
+  const unknown = () => say('<span>Reading speed will be measured once scanning starts.</span>', false);
+
+  if (!worker) {
+    unknown();
+    return;
+  }
+
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('bench frame failed to load'));
+      i.src = BENCH_FRAME_PNG;
+    });
+
+    // Composed the way the capture loop will compose a real frame: the code
+    // centred at its natural scale on a dark surround, at the same canvas
+    // size. Anything else measures a different job.
+    const c = document.createElement('canvas');
+    c.width = c.height = CAP;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = '#3a3a3a';
+    g.fillRect(0, 0, CAP, CAP);
+    const scale = Math.max(1, Math.floor((CAP * 0.8) / img.width));
+    const d = img.width * scale;
+    const o = Math.floor((CAP - d) / 2);
+    g.drawImage(img, o, o, d, d);
+    const frame = g.getImageData(0, 0, CAP, CAP);
+
+    const once = () =>
+      new Promise((resolve) => {
+        const copy = new Uint8ClampedArray(frame.data); // the buffer is transferred away
+        const t0 = performance.now();
+        benchResolve = (data) => resolve({ ms: performance.now() - t0, ok: !!data.bytes });
+        workerBusy = true;
+        worker.postMessage({ buf: copy.buffer, w: CAP, h: CAP }, [copy.buffer]);
+      });
+
+    /* The first decode on a fresh worker can take twenty times the steady
+       cost while the engine is still interpreting jsQR. Timing that would
+       tell someone with a perfectly good phone to ask for 3 fps. So the warm
+       runs are thrown away — and because this is the same worker that will
+       read the camera, throwing them away here means the real frames start
+       fast rather than paying the same warm-up later. */
+    const deadline = performance.now() + 9000;
+    let ok = 0;
+    for (let i = 0; i < 10 && performance.now() < deadline; i++) {
+      const r = await once();
+      ok += r.ok ? 1 : 0;
+    }
+
+    const times = [];
+    for (let i = 0; i < 9 && performance.now() < deadline; i++) {
+      const r = await once();
+      times.push(r.ms);
+      ok += r.ok ? 1 : 0;
+    }
+
+    if (!ok || !times.length) {
+      unknown();
+      return;
+    }
+
+    times.sort((a, b) => a - b);
+    const ms = times[Math.floor(times.length / 2)]; // median, not mean: one
+    const fps = 1000 / ms;                          // scheduling hiccup should
+    state.benchCapacity = fps;                      // not define the answer
+    state.benchAtSize = CAP;
+
+    say(
+      `<span>This device reads about <b>${fps.toFixed(0)} frames a second</b> at full camera ` +
+        `resolution — roughly ${formatBytes(Math.round(fps * (BENCH_FRAME_BYTES - 10)))}/s. ` +
+        `Ask the sender to stay near that.</span>`,
+      false
+    );
+  } catch (err) {
+    unknown();
+  }
+}
+
 /* ─────────────────────────  camera  ───────────────────────── */
 
 const video = $('video');
@@ -91,9 +194,21 @@ async function startCamera(deviceId) {
     await video.play();
 
     show('scan');
-    sizeRibbon();
+    relayout();
     requestWakeLock();
     await setupCameraTools();
+
+    // A stream can decode perfectly while showing nothing, if the preview box
+    // has no height. Check rather than leave a person staring at a black gap.
+    setTimeout(() => {
+      const vp = $('viewport');
+      if (!state.scanning) return;
+      if (video.videoWidth && vp.clientHeight < 40) {
+        $('v-status').textContent =
+          'Reading, but this browser will not show the preview. Scanning still works — aim by watching the numbers.';
+      }
+      relayout();
+    }, 1200);
 
     state.scanning = true;
     state.paused = false;
@@ -185,6 +300,12 @@ function initWorker() {
     worker = new Worker('js/decode-worker.js');
     worker.onmessage = (e) => {
       workerBusy = false;
+      if (benchResolve) {
+        const done = benchResolve;
+        benchResolve = null;
+        done(e.data);
+        return;
+      }
       noteDecodeCost(e.data.id);
       if (e.data.bytes) onBytes(e.data.bytes);
     };
@@ -233,6 +354,12 @@ function grab() {
   if (work.width !== out) {
     work.width = out;
     work.height = out;
+  }
+  if (state.benchCapacity && !state.capScaled && out !== state.benchAtSize) {
+    // Decode cost tracks pixel count, so scale the pre-flight estimate to the
+    // crop this camera actually gives us.
+    state.benchCapacity *= (state.benchAtSize * state.benchAtSize) / (out * out);
+    state.capScaled = true;
   }
   wctx.drawImage(video, sx, sy, side, side, 0, 0, out, out);
   const img = wctx.getImageData(0, 0, out, out);
@@ -335,7 +462,7 @@ async function initTransfer(pkt) {
   $('s-eyebrow').textContent = m.e ? 'Incoming · encrypted' : 'Incoming';
   $('t-store').textContent = state.store.kind === 'disk' ? 'browser storage' : 'memory';
   $('v-status').textContent = `Reading ${m.n || 'file'} — ${formatBytes(m.s)}`;
-  sizeRibbon();
+  relayout();
 
   const held = state.buffered;
   state.buffered = [];
@@ -379,8 +506,9 @@ function tickTelemetry() {
     state.goodput = state.solvedRate * state.meta.c;
     if (state.goodput > state.peakGoodput) state.peakGoodput = state.goodput;
     $('t-good').textContent = state.goodput > 0 ? formatBytes(state.goodput) + '/s' : '—';
-    $('t-cap').textContent = state.capacity
-      ? `${state.capacity.toFixed(0)} fps max`
+    const cap = state.capacity || state.benchCapacity;
+    $('t-cap').textContent = cap
+      ? `${cap.toFixed(0)} fps max${state.capacity ? '' : ' (measured)'}`
       : '—';
 
     $('t-solved').textContent = d.stats.solvedTogether
@@ -392,9 +520,9 @@ function tickTelemetry() {
     if (d.busySolving) q = 'Solving the remaining chunks as a system…';
     else if (state.hitRate < 0.4 && state.rate > 2) q = 'Nothing is decoding. Move closer, or steady the camera.';
     else if (d.stats.duplicates > 40 && state.solvedRate < 0.5)
-      q = `Reading the same frame repeatedly — this camera can handle about ${state.capacity.toFixed(
-        0
-      )} frames a second, so ask the sender to send up to that.`;
+      q = `Reading the same frame repeatedly — this device handles about ${(
+        state.capacity || state.benchCapacity
+      ).toFixed(0)} frames a second, so ask the sender to send up to that.`;
     else if (state.hitRate > 3 && state.solvedRate < 0.2 && d.missing > 0)
       q = 'Frames are landing but few are new. Keep going; blended frames still count towards the solve.';
     $('quality').textContent = q;
@@ -409,39 +537,81 @@ function tickTelemetry() {
 const ribbon = $('ribbon');
 const rctx = ribbon.getContext('2d');
 
+/* The decoder examines a centred square of the camera image, so the brackets
+   have to be a square measured off the shorter side of the box. That used to
+   be a container query; doing the arithmetic here costs nothing and works
+   everywhere. */
+function sizeReticle() {
+  const vp = $('viewport');
+  if (!vp) return;
+  const side = Math.min(vp.clientWidth, vp.clientHeight);
+  if (side > 0) vp.style.setProperty('--reticle', Math.round(side * 0.82) + 'px');
+}
+
 function sizeRibbon() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  ribbon.width = Math.max(1, Math.floor(ribbon.clientWidth * dpr));
+  const css = ribbon.clientWidth;
+  if (!css) {
+    // Measured while the panel was still hidden. Try again once laid out.
+    requestAnimationFrame(() => {
+      if (ribbon.clientWidth) sizeRibbon();
+    });
+    return;
+  }
+  ribbon.width = Math.max(1, Math.floor(css * dpr));
   ribbon.height = Math.floor(30 * dpr);
   drawRibbon();
 }
-window.addEventListener('resize', sizeRibbon);
+function relayout() {
+  sizeRibbon();
+  sizeReticle();
+}
+window.addEventListener('resize', relayout);
+window.addEventListener('orientationchange', () => setTimeout(relayout, 250));
 
+/* One tick per chunk.
+
+   Two things used to go wrong once a transfer got big or fast. Cell edges
+   were placed at fractional pixels, so with a few hundred chunks in a few
+   hundred pixels neighbouring cells half-covered each other and the whole
+   strip came out dim and patchy instead of solid. And the aggregated path
+   built an "rgba(...)" string for every column on every redraw, hundreds of
+   allocations several times a second, competing with the decoder for the
+   main thread exactly when it was busiest.
+
+   Now edges are snapped to whole pixels and coverage is expressed with
+   globalAlpha against one fixed fill colour. */
 function drawRibbon() {
-  if (!state.decoder) return;
-  const K = state.decoder.K;
-  const solved = state.decoder.solved;
   const W = ribbon.width;
   const H = ribbon.height;
+  if (!W || !H) return;
   rctx.clearRect(0, 0, W, H);
+  if (!state.decoder) return;
+
+  const K = state.decoder.K;
+  const solved = state.decoder.solved;
+  if (!K) return;
   rctx.fillStyle = '#2fe3b7';
 
   if (K <= W) {
-    const w = W / K;
+    const gap = W / K >= 5 ? 1 : 0;
     for (let i = 0; i < K; i++) {
-      if (solved[i]) rctx.fillRect(i * w, 0, Math.max(1, w - (w > 3 ? 1 : 0)), H);
+      if (!solved[i]) continue;
+      const x0 = Math.round((i * W) / K);
+      const x1 = Math.round(((i + 1) * W) / K);
+      rctx.fillRect(x0, 0, Math.max(1, x1 - x0 - gap), H);
     }
   } else {
-    const per = K / W;
     for (let x = 0; x < W; x++) {
-      const from = Math.floor(x * per);
-      const to = Math.min(K, Math.floor((x + 1) * per));
+      const from = Math.floor((x * K) / W);
+      const to = Math.max(from + 1, Math.floor(((x + 1) * K) / W));
       let hit = 0;
       for (let i = from; i < to; i++) if (solved[i]) hit++;
       if (!hit) continue;
-      rctx.fillStyle = `rgba(47,227,183,${0.3 + 0.7 * (hit / Math.max(1, to - from))})`;
+      rctx.globalAlpha = 0.4 + 0.6 * (hit / (to - from));
       rctx.fillRect(x, 0, 1, H);
     }
+    rctx.globalAlpha = 1;
   }
 }
 
@@ -647,6 +817,7 @@ async function resetAll(backToIdle) {
   $('t-solved').textContent = '—';
   state.decodeMs = 0;
   state.capacity = 0;
+  state.capScaled = false;
   state.goodput = 0;
   state.peakGoodput = 0;
   $('torch').hidden = true;
@@ -704,6 +875,9 @@ function releaseWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.scanning) requestWakeLock();
 });
+
+if ('requestIdleCallback' in window) requestIdleCallback(() => measureCapacity(), { timeout: 1500 });
+else setTimeout(measureCapacity, 400);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
