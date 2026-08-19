@@ -1,0 +1,11 @@
+{
+  "name": "OQTP Receiver",
+  "short_name": "Receive",
+  "description": "Rebuild a file from the QR codes on another device's screen.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0A0F11",
+  "theme_color": "#0A0F11",
+  "orientation": "any",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

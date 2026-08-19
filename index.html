@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Receiver — Optical file transfer</title>
+<meta name="description" content="Rebuild a file from the QR codes on another device's screen.">
+<meta name="theme-color" content="#0A0F11">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="mark">
+    <span class="mark__glyph" aria-hidden="true"></span>
+    <span class="mark__text">OQTP<span class="mark__dot">·</span>2</span>
+  </div>
+  <p class="mark__role">Receiver</p>
+  <p class="mark__note">This device only watches. Frames are decoded here and go nowhere else.</p>
+</header>
+
+<main>
+
+  <!-- ─────────────  idle  ───────────── -->
+  <section id="stage-idle" class="stage">
+    <div class="panel panel--start">
+      <p class="panel__lead">Point this camera at the sender's screen</p>
+      <p class="panel__sub">The sender doesn't need to know you're here. Start whenever you're ready — mid-transfer is fine.</p>
+      <button type="button" class="btn btn--primary btn--big" id="start">Turn on the camera</button>
+      <p class="panel__fine">Nothing is recorded. Frames are read and thrown away.</p>
+      <p class="err" id="cam-err" hidden></p>
+    </div>
+
+    <div class="tips">
+      <h2 class="tips__title">If it isn't catching anything</h2>
+      <ul class="tips__list">
+        <li>Fill about two thirds of the frame with the code — closer is not always better.</li>
+        <li>Hold the phone square to the screen, not at an angle.</li>
+        <li>Kill the reflection: tilt one of the two screens.</li>
+        <li>Still slow? Ask the sender to lower frames per second or data per frame.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ─────────────  scanning  ───────────── -->
+  <section id="stage-scan" class="stage stage--scan" hidden>
+    <div class="viewport" id="viewport">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="reticle" id="reticle" aria-hidden="true">
+        <i class="reticle__c reticle__c--tl"></i><i class="reticle__c reticle__c--tr"></i>
+        <i class="reticle__c reticle__c--bl"></i><i class="reticle__c reticle__c--br"></i>
+      </div>
+      <p class="viewport__status" id="v-status">Looking for a transfer…</p>
+      <div class="cam-tools">
+        <button type="button" class="chip" id="torch" hidden>Light</button>
+        <button type="button" class="chip" id="swap" hidden>Switch camera</button>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <div class="headline">
+        <p class="eyebrow" id="s-eyebrow">Incoming</p>
+        <h2 class="filename" id="s-name">Waiting for the sender…</h2>
+        <div class="bar"><i class="bar__fill" id="s-bar"></i></div>
+        <p class="bar__read"><span id="s-pct">0%</span><span id="s-chunks">— of — chunks</span></p>
+      </div>
+
+      <div class="ribbon-wrap">
+        <p class="eyebrow">Every chunk of the file, filling in as it lands</p>
+        <canvas id="ribbon" class="ribbon" height="30"></canvas>
+        <p class="ribbon__legend"><span class="dot dot--have"></span>rebuilt <span class="dot dot--gap"></span>still missing</p>
+      </div>
+
+      <div class="telemetry">
+        <div class="tm"><span class="tm__k">Still missing</span><span class="tm__v" id="t-missing">—</span></div>
+        <div class="tm"><span class="tm__k">Frames read</span><span class="tm__v" id="t-rate">—</span></div>
+        <div class="tm"><span class="tm__k">Useful frames</span><span class="tm__v" id="t-useful">—</span></div>
+        <div class="tm"><span class="tm__k">Repeats ignored</span><span class="tm__v" id="t-dup">0</span></div>
+        <div class="tm"><span class="tm__k">Time left</span><span class="tm__v" id="t-eta">—</span></div>
+        <div class="tm"><span class="tm__k">Held in</span><span class="tm__v" id="t-store">—</span></div>
+      </div>
+
+      <div class="controls">
+        <button type="button" class="btn" id="pause">Pause scanning</button>
+        <button type="button" class="btn btn--danger" id="discard">Discard</button>
+      </div>
+
+      <p class="quality" id="quality"></p>
+    </aside>
+  </section>
+
+  <!-- ─────────────  done  ───────────── -->
+  <section id="stage-done" class="stage" hidden>
+    <div class="panel panel--done">
+      <p class="eyebrow" id="d-verdict">Complete</p>
+      <h2 class="filename" id="d-name">—</h2>
+      <dl class="specs">
+        <div><dt>Size</dt><dd id="d-size">—</dd></div>
+        <div><dt>Type</dt><dd id="d-type">—</dd></div>
+        <div><dt>Chunks rebuilt</dt><dd id="d-chunks">—</dd></div>
+        <div><dt>Frames used</dt><dd id="d-frames">—</dd></div>
+        <div><dt>Fingerprint</dt><dd id="d-hash" class="hash">—</dd></div>
+      </dl>
+
+      <div class="field" id="pw-wrap" hidden>
+        <label class="field__label" for="d-password">This file is encrypted. Type the sender's password.</label>
+        <input type="password" id="d-password" autocomplete="off">
+        <button type="button" class="btn btn--primary" id="unlock">Unlock</button>
+        <p class="err" id="pw-err" hidden></p>
+      </div>
+
+      <div class="preview" id="preview" hidden></div>
+
+      <div class="actions">
+        <button type="button" class="btn btn--primary btn--big" id="save">Save the file</button>
+        <button type="button" class="btn" id="share" hidden>Share</button>
+        <button type="button" class="btn btn--ghost" id="again">Receive another</button>
+      </div>
+      <p class="panel__fine">Nothing was written to your device until you pressed save.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <p>Open the transmitter page on the other device to send something back.</p>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
