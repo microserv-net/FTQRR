@@ -25,6 +25,10 @@ const state = {
 
   attempts: 0,
   hits: 0,
+  decodeMs: 0,      // rolling cost of one decode attempt
+  capacity: 0,      // frames per second this camera+CPU can examine
+  goodput: 0,       // bytes per second of the file actually arriving
+  peakGoodput: 0,
   lastSampleAt: 0,
   rate: 0,
   hitRate: 0,
@@ -46,8 +50,17 @@ function toast(msg, ms = 2800) {
   toastTimer = setTimeout(() => (t.hidden = true), ms);
 }
 
+const STEPS = ['idle', 'scan', 'done'];
+
 function show(stage) {
-  for (const s of ['stage-idle', 'stage-scan', 'stage-done']) $(s).hidden = s !== stage;
+  for (const st of STEPS) $('stage-' + st).hidden = st !== stage;
+  const at = STEPS.indexOf(stage);
+  document.querySelectorAll('.path__step').forEach((el, i) => {
+    el.classList.toggle('is-current', i === at);
+    el.classList.toggle('is-done', i < at);
+  });
+  document.body.classList.toggle('is-live', stage === 'scan');
+  window.scrollTo({ top: 0 });
 }
 
 /* ─────────────────────────  camera  ───────────────────────── */
@@ -77,7 +90,7 @@ async function startCamera(deviceId) {
     video.srcObject = state.stream;
     await video.play();
 
-    show('stage-scan');
+    show('scan');
     sizeRibbon();
     requestWakeLock();
     await setupCameraTools();
@@ -146,6 +159,19 @@ async function setupCameraTools() {
 
 /* ─────────────────────────  capture loop  ───────────────────────── */
 
+/* How long one look at a frame costs, end to end. Its reciprocal is the
+   ceiling on frames this device can read per second, which is the number
+   that actually decides the transfer speed — the sender can display frames
+   faster than this, but they will not be seen. */
+let sentAt = 0;
+function noteDecodeCost() {
+  if (!sentAt) return;
+  const ms = performance.now() - sentAt;
+  sentAt = 0;
+  state.decodeMs = state.decodeMs ? state.decodeMs * 0.85 + ms * 0.15 : ms;
+  state.capacity = 1000 / state.decodeMs;
+}
+
 const work = document.createElement('canvas');
 const wctx = work.getContext('2d', { willReadFrequently: true });
 const CAP = 720; // longest side handed to the decoder
@@ -159,6 +185,7 @@ function initWorker() {
     worker = new Worker('js/decode-worker.js');
     worker.onmessage = (e) => {
       workerBusy = false;
+      noteDecodeCost(e.data.id);
       if (e.data.bytes) onBytes(e.data.bytes);
     };
     worker.onerror = () => {
@@ -213,9 +240,12 @@ function grab() {
 
   if (worker) {
     workerBusy = true;
+    sentAt = performance.now();
     worker.postMessage({ buf: img.data.buffer, w: out, h: out }, [img.data.buffer]);
   } else if (fallbackDecode) {
+    sentAt = performance.now();
     const bytes = fallbackDecode(img.data, out, out);
+    noteDecodeCost();
     if (bytes) onBytes(bytes);
   }
 }
@@ -271,8 +301,11 @@ async function drain() {
     while (state.queue.length) {
       const pkt = state.queue.shift();
       if (!state.decoder || state.decoder.complete) break;
+      const before = state.decoder.stats.solvedTogether;
       await state.decoder.push(pkt.seed, pkt.payload);
       state.framesUsed++;
+      const together = state.decoder.stats.solvedTogether - before;
+      if (together > 1) toast(`Solved ${together} chunks at once from blended frames.`, 2200);
       if (state.decoder.complete) {
         finish();
         break;
@@ -343,13 +376,27 @@ function tickTelemetry() {
     $('t-eta').textContent =
       state.solvedRate > 0.05 ? formatDuration(d.missing / state.solvedRate) : 'hold steady…';
 
+    state.goodput = state.solvedRate * state.meta.c;
+    if (state.goodput > state.peakGoodput) state.peakGoodput = state.goodput;
+    $('t-good').textContent = state.goodput > 0 ? formatBytes(state.goodput) + '/s' : '—';
+    $('t-cap').textContent = state.capacity
+      ? `${state.capacity.toFixed(0)} fps max`
+      : '—';
+
+    $('t-solved').textContent = d.stats.solvedTogether
+      ? `${d.stats.solvedTogether.toLocaleString()} chunks`
+      : '—';
+
     // One honest sentence about what is going wrong, when something is.
     let q = '';
-    if (state.hitRate < 0.4 && state.rate > 2) q = 'Nothing is decoding. Move closer, or steady the camera.';
+    if (d.busySolving) q = 'Solving the remaining chunks as a system…';
+    else if (state.hitRate < 0.4 && state.rate > 2) q = 'Nothing is decoding. Move closer, or steady the camera.';
     else if (d.stats.duplicates > 40 && state.solvedRate < 0.5)
-      q = 'Reading the same frame over and over — ask the sender to speed up.';
+      q = `Reading the same frame repeatedly — this camera can handle about ${state.capacity.toFixed(
+        0
+      )} frames a second, so ask the sender to send up to that.`;
     else if (state.hitRate > 3 && state.solvedRate < 0.2 && d.missing > 0)
-      q = 'Frames are landing but few are new. Keep going; the repair stream will fill the gaps.';
+      q = 'Frames are landing but few are new. Keep going; blended frames still count towards the solve.';
     $('quality').textContent = q;
   }
 
@@ -377,7 +424,7 @@ function drawRibbon() {
   const W = ribbon.width;
   const H = ribbon.height;
   rctx.clearRect(0, 0, W, H);
-  rctx.fillStyle = '#25e0b0';
+  rctx.fillStyle = '#2fe3b7';
 
   if (K <= W) {
     const w = W / K;
@@ -392,7 +439,7 @@ function drawRibbon() {
       let hit = 0;
       for (let i = from; i < to; i++) if (solved[i]) hit++;
       if (!hit) continue;
-      rctx.fillStyle = `rgba(37,224,176,${0.3 + 0.7 * (hit / Math.max(1, to - from))})`;
+      rctx.fillStyle = `rgba(47,227,183,${0.3 + 0.7 * (hit / Math.max(1, to - from))})`;
       rctx.fillRect(x, 0, 1, H);
     }
   }
@@ -414,7 +461,7 @@ async function finish() {
   $('d-frames').textContent = `${state.framesUsed.toLocaleString()} of ${(
     state.framesUsed + state.decoder.stats.duplicates
   ).toLocaleString()} seen`;
-  show('stage-done');
+  show('done');
   beep();
 
   $('d-verdict').textContent = 'Checking the file…';
@@ -425,7 +472,7 @@ async function finish() {
 
   if (digest !== m.h) {
     $('d-verdict').textContent = 'Rebuilt, but the fingerprint does not match';
-    document.querySelector('.panel--done').classList.add('is-bad');
+    $('done-slab').classList.add('is-bad');
     toast('The file did not verify. Ask the sender to run it again.', 6000);
     state.blob = raw;
     return;
@@ -585,9 +632,32 @@ async function resetAll(backToIdle) {
   $('preview').innerHTML = '';
   $('pw-wrap').hidden = true;
   $('share').hidden = true;
-  document.querySelector('.panel--done').classList.remove('is-bad');
+  $('done-slab').classList.remove('is-bad');
   $('pause').textContent = 'Pause scanning';
-  if (backToIdle) show('stage-idle');
+  $('v-status').textContent = 'Looking for a transfer…';
+  $('s-eyebrow').textContent = 'Incoming';
+  $('t-missing').textContent = '—';
+  $('t-rate').textContent = '—';
+  $('t-useful').textContent = '—';
+  $('t-dup').textContent = '0';
+  $('t-eta').textContent = '—';
+  $('t-store').textContent = '—';
+  $('t-good').textContent = '—';
+  $('t-cap').textContent = '—';
+  $('t-solved').textContent = '—';
+  state.decodeMs = 0;
+  state.capacity = 0;
+  state.goodput = 0;
+  state.peakGoodput = 0;
+  $('torch').hidden = true;
+  $('torch').classList.remove('is-on');
+  $('swap').hidden = true;
+  $('cam-err').hidden = true;
+  $('d-password').value = '';
+  $('pw-err').hidden = true;
+  const rb = ribbon.getContext('2d');
+  rb.clearRect(0, 0, ribbon.width, ribbon.height);
+  if (backToIdle) show('idle');
 }
 
 window.addEventListener('beforeunload', (e) => {
@@ -638,3 +708,49 @@ document.addEventListener('visibilitychange', () => {
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+
+/* ─────────────────────────  depth  ───────────────────────── */
+
+const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Panels lean fractionally towards the pointer. Never while scanning: the
+// decode loop owns the main thread then.
+if (!calm && window.matchMedia('(pointer: fine)').matches) {
+  let queued = false;
+  window.addEventListener('pointermove', (e) => {
+    if (queued || document.body.classList.contains('is-live')) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      const rx = ((e.clientY - cy) / cy) * -2.2;
+      const ry = ((e.clientX - cx) / cx) * 2.2;
+      document.querySelectorAll('[data-tilt]').forEach((el) => {
+        el.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
+      });
+    });
+  });
+}
+
+const io = new IntersectionObserver(
+  (entries) => {
+    for (const en of entries) {
+      if (en.isIntersecting) {
+        en.target.classList.add('in');
+        io.unobserve(en.target);
+      }
+    }
+  },
+  { threshold: 0.18 }
+);
+document.querySelectorAll('.reveal').forEach((el, i) => {
+  el.style.transitionDelay = i * 90 + 'ms';
+  io.observe(el);
+});
+
+show('idle');
+
+const cue = document.getElementById('cue');
+if (cue) cue.addEventListener('click', () => document.getElementById('journey').scrollIntoView({ behavior: 'smooth', block: 'center' }));

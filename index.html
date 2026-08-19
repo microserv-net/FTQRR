@@ -5,51 +5,88 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Receiver — Optical file transfer</title>
 <meta name="description" content="Rebuild a file from the QR codes on another device's screen.">
-<meta name="theme-color" content="#0A0F11">
+<meta name="theme-color" content="#05070C">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
+<div class="scape" aria-hidden="true">
+  <div class="scape__aurora"></div>
+  <div class="scape__floor"></div>
+  <div class="scape__vignette"></div>
+</div>
+
 <header class="masthead">
-  <div class="mark">
-    <span class="mark__glyph" aria-hidden="true"></span>
-    <span class="mark__text">OQTP<span class="mark__dot">·</span>2</span>
-  </div>
-  <p class="mark__role">Receiver</p>
-  <p class="mark__note">This device only watches. Frames are decoded here and go nowhere else.</p>
+  <a class="brand" href="./" aria-label="Receiver home">
+    <img class="brand__icon" src="icon.svg" alt="" width="40" height="40">
+    <span class="brand__text">microservices.net.in<span class="brand__dot">·</span></span>
+  </a>
+  <a class="crosslink" href="https://microservices.net.in/FTQRS">
+    <span class="crosslink__k">Other device</span>
+    <span class="crosslink__v">Open the transmitter</span>
+    <span class="crosslink__arrow" aria-hidden="true">→</span>
+  </a>
 </header>
 
-<main>
+<section class="hero" id="hero">
+  <p class="eyebrow">Optical transport · nothing is recorded</p>
+  <h1 class="hero__title"><span class="hero__word">Re</span><span class="hero__word hero__word--accent">ceiver</span></h1>
+  <p class="hero__sub">Hold this camera up to the other screen. Frames land in any order, repeats are thrown away, and the file rebuilds itself as the pieces arrive.</p>
+</section>
 
-  <!-- ─────────────  idle  ───────────── -->
+<ol class="path" id="path">
+  <li class="path__step is-current" data-step="idle"><b>01</b><span>Open the camera</span></li>
+  <li class="path__step" data-step="scan"><b>02</b><span>Catch the stream</span></li>
+  <li class="path__step" data-step="done"><b>03</b><span>Verify and save</span></li>
+</ol>
+
+<main class="deck">
+
+  <!-- ── 01 ── -->
   <section id="stage-idle" class="stage">
-    <div class="panel panel--start">
-      <p class="panel__lead">Point this camera at the sender's screen</p>
-      <p class="panel__sub">The sender doesn't need to know you're here. Start whenever you're ready — mid-transfer is fine.</p>
+    <div class="slab slab--start" data-tilt>
+      <div class="slab__glow"></div>
+      <img class="drop__art" src="icon.svg" alt="" width="96" height="96">
+      <p class="drop__lead">Point this camera at the sender's screen</p>
+      <p class="drop__sub">The sender doesn't need to know you're here. Starting mid-transfer is fine.</p>
       <button type="button" class="btn btn--primary btn--big" id="start">Turn on the camera</button>
-      <p class="panel__fine">Nothing is recorded. Frames are read and thrown away.</p>
+      <p class="fine">Frames are read and thrown away. Nothing is uploaded, nothing is stored.</p>
       <p class="err" id="cam-err" hidden></p>
     </div>
 
-    <div class="tips">
-      <h2 class="tips__title">If it isn't catching anything</h2>
-      <ul class="tips__list">
-        <li>Fill about two thirds of the frame with the code — closer is not always better.</li>
-        <li>Hold the phone square to the screen, not at an angle.</li>
-        <li>Kill the reflection: tilt one of the two screens.</li>
-        <li>Still slow? Ask the sender to lower frames per second or data per frame.</li>
-      </ul>
+    <button type="button" class="cue" id="cue"><span>Getting a clean read</span><i aria-hidden="true">↓</i></button>
+
+    <div class="journey" id="journey">
+      <article class="slab reveal" data-tilt>
+        <p class="eyebrow">Aim</p>
+        <h2 class="slab__title">Fill about two thirds</h2>
+        <p class="slab__body">Closer is not always better. Keep the whole code inside the brackets, square to the screen rather than at an angle, and tilt one of the two screens to kill the reflection.</p>
+      </article>
+      <article class="slab reveal" data-tilt>
+        <p class="eyebrow">Hold</p>
+        <h2 class="slab__title">Missing frames are fine</h2>
+        <p class="slab__body">There is nothing to re-request and nothing to lose. Every frame you do catch moves the count down, whatever order they arrive in.</p>
+      </article>
+      <article class="slab reveal" data-tilt>
+        <p class="eyebrow">Finish</p>
+        <h2 class="slab__title">Checked before it's yours</h2>
+        <p class="slab__body">The rebuilt file is hashed and matched against the sender's fingerprint. Only then are you offered the save button.</p>
+      </article>
     </div>
   </section>
 
-  <!-- ─────────────  scanning  ───────────── -->
+  <!-- ── 02 ── -->
   <section id="stage-scan" class="stage stage--scan" hidden>
     <div class="viewport" id="viewport">
       <video id="video" playsinline muted autoplay></video>
       <div class="reticle" id="reticle" aria-hidden="true">
         <i class="reticle__c reticle__c--tl"></i><i class="reticle__c reticle__c--tr"></i>
         <i class="reticle__c reticle__c--bl"></i><i class="reticle__c reticle__c--br"></i>
+        <span class="reticle__scan"></span>
       </div>
       <p class="viewport__status" id="v-status">Looking for a transfer…</p>
       <div class="cam-tools">
@@ -59,24 +96,27 @@
     </div>
 
     <aside class="rail">
-      <div class="headline">
+      <div class="slab">
         <p class="eyebrow" id="s-eyebrow">Incoming</p>
         <h2 class="filename" id="s-name">Waiting for the sender…</h2>
         <div class="bar"><i class="bar__fill" id="s-bar"></i></div>
         <p class="bar__read"><span id="s-pct">0%</span><span id="s-chunks">— of — chunks</span></p>
       </div>
 
-      <div class="ribbon-wrap">
+      <div class="slab">
         <p class="eyebrow">Every chunk of the file, filling in as it lands</p>
         <canvas id="ribbon" class="ribbon" height="30"></canvas>
-        <p class="ribbon__legend"><span class="dot dot--have"></span>rebuilt <span class="dot dot--gap"></span>still missing</p>
+        <p class="legend"><i class="dot dot--have"></i>rebuilt<i class="dot dot--gap"></i>still missing</p>
       </div>
 
-      <div class="telemetry">
-        <div class="tm"><span class="tm__k">Still missing</span><span class="tm__v" id="t-missing">—</span></div>
+      <div class="slab slab--tele">
+        <div class="tm tm--lead"><span class="tm__k">Still missing</span><span class="tm__v" id="t-missing">—</span></div>
         <div class="tm"><span class="tm__k">Frames read</span><span class="tm__v" id="t-rate">—</span></div>
         <div class="tm"><span class="tm__k">Useful frames</span><span class="tm__v" id="t-useful">—</span></div>
         <div class="tm"><span class="tm__k">Repeats ignored</span><span class="tm__v" id="t-dup">0</span></div>
+        <div class="tm"><span class="tm__k">Arriving at</span><span class="tm__v" id="t-good">—</span></div>
+        <div class="tm"><span class="tm__k">This camera can read</span><span class="tm__v" id="t-cap">—</span></div>
+        <div class="tm"><span class="tm__k">Solved as a system</span><span class="tm__v" id="t-solved">—</span></div>
         <div class="tm"><span class="tm__k">Time left</span><span class="tm__v" id="t-eta">—</span></div>
         <div class="tm"><span class="tm__k">Held in</span><span class="tm__v" id="t-store">—</span></div>
       </div>
@@ -90,9 +130,10 @@
     </aside>
   </section>
 
-  <!-- ─────────────  done  ───────────── -->
-  <section id="stage-done" class="stage" hidden>
-    <div class="panel panel--done">
+  <!-- ── 03 ── -->
+  <section id="stage-done" class="stage stage--done" hidden>
+    <div class="slab slab--done" id="done-slab">
+      <div class="slab__glow"></div>
       <p class="eyebrow" id="d-verdict">Complete</p>
       <h2 class="filename" id="d-name">—</h2>
       <dl class="specs">
@@ -117,14 +158,21 @@
         <button type="button" class="btn" id="share" hidden>Share</button>
         <button type="button" class="btn btn--ghost" id="again">Receive another</button>
       </div>
-      <p class="panel__fine">Nothing was written to your device until you pressed save.</p>
+      <p class="fine">Nothing was written to this device until you pressed save.</p>
     </div>
   </section>
 
 </main>
 
 <footer class="foot">
-  <p>Open the transmitter page on the other device to send something back.</p>
+  <div class="foot__row">
+    <p class="foot__note">Receiving at <b>microservices.net.in/FTQRR</b></p>
+    <a class="foot__link" href="https://microservices.net.in/FTQRS">
+      <img src="icon.svg" alt="" width="28" height="28">
+      <span><b>Send a file instead</b><i>microservices.net.in/FTQRS</i></span>
+      <em aria-hidden="true">→</em>
+    </a>
+  </div>
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

@@ -1,6 +1,6 @@
 /* Caches the whole application on first visit so that later transfers need
    no network at all — which is the point of the project. */
-const CACHE = 'oqtp-rx-v1';
+const CACHE = 'oqtp-rx-v2';
 const ASSETS = [
   './',
   'index.html',
