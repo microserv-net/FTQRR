@@ -1,5 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
-  <rect width="192" height="192" fill="#0A0F11"/>
-  <circle cx="96" cy="96" r="52" fill="none" stroke="#25E0B0" stroke-width="10"/>
-  <circle cx="96" cy="96" r="18" fill="#25E0B0"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="File transfer between two devices">
+  <title>Receiver</title>
+  <style>
+    .ink { stroke: #050605; stroke-width: 16; stroke-linejoin: round; stroke-linecap: round; }
+    .arrow { transform-box: fill-box; transform-origin: center; }
+    .accent { stroke: #047857; }
+    @keyframes send { 0%,100% { transform: translateX(9px); opacity: .55; } 45% { transform: translateX(-9px); opacity: 1; } }
+    @keyframes back { 0%,100% { transform: translateX(-4px); opacity: .45; } 45% { transform: translateX(4px); opacity: .8; } }
+    @keyframes halo { 0%,100% { opacity: .18; } 50% { opacity: .42; } }
+    .a-send { animation: send 1.9s cubic-bezier(.65,0,.35,1) infinite; }
+    .a-back { animation: back 1.9s cubic-bezier(.65,0,.35,1) infinite .35s; }
+    .halo { animation: halo 1.9s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .a-send, .a-back, .halo { animation: none; } }
+  </style>
+  <defs>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="34" /></filter>
+  </defs>
+  <ellipse class="halo" cx="256" cy="256" rx="150" ry="128" fill="#2FE3B7" filter="url(#soft)" />
+  <rect class="ink" x="36" y="54" width="200" height="166" rx="20" fill="#B9D8D8" />
+  <rect class="ink" x="22" y="222" width="228" height="28" rx="14" fill="#79AFB9" />
+  <rect class="ink" x="274" y="262" width="200" height="160" rx="20" fill="#B9D8D8" />
+  <rect class="ink" x="260" y="424" width="228" height="28" rx="14" fill="#75A9B3" />
+  <rect class="ink" x="158" y="166" width="196" height="180" rx="26" fill="#F1E39D" />
+  <g class="arrow a-back">
+    <path class="ink" d="M196 292 H316" fill="none" />
+    <path class="ink" d="M292 268 L318 292 L292 316" fill="none" />
+  </g>
+  <g class="arrow a-send">
+    <path class="ink accent" d="M316 222 H196" fill="none" />
+    <path class="ink accent" d="M220 198 L194 222 L220 246" fill="none" />
+  </g>
 </svg>
