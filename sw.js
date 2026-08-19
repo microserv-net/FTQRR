@@ -1,6 +1,6 @@
 /* Caches the whole application on first visit so that later transfers need
    no network at all — which is the point of the project. */
-const CACHE = 'oqtp-rx-v2';
+const CACHE = 'oqtp-rx-v3';
 const ASSETS = [
   './',
   'index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   'js/oqtp.js',
   'js/sha256.js',
   'js/fountain-decoder.js',
+  'js/bench-frame.js',
   'js/store.js',
   'js/store-worker.js',
   'js/decode-worker.js',

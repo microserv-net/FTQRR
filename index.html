@@ -23,7 +23,7 @@
 <header class="masthead">
   <a class="brand" href="./" aria-label="Receiver home">
     <img class="brand__icon" src="icon.svg" alt="" width="40" height="40">
-    <span class="brand__text">microservices.net.in<span class="brand__dot">·</span></span>
+    <span class="brand__text">OQTP<span class="brand__dot">·</span>2</span>
   </a>
   <a class="crosslink" href="https://microservices.net.in/FTQRS">
     <span class="crosslink__k">Other device</span>
@@ -54,6 +54,12 @@
       <p class="drop__lead">Point this camera at the sender's screen</p>
       <p class="drop__sub">The sender doesn't need to know you're here. Starting mid-transfer is fine.</p>
       <button type="button" class="btn btn--primary btn--big" id="start">Turn on the camera</button>
+
+      <div class="capability is-busy" id="capability">
+        <span class="capability__pulse" aria-hidden="true"></span>
+        <span>Measuring what this device can read…</span>
+      </div>
+
       <p class="fine">Frames are read and thrown away. Nothing is uploaded, nothing is stored.</p>
       <p class="err" id="cam-err" hidden></p>
     </div>
@@ -82,7 +88,7 @@
   <!-- ── 02 ── -->
   <section id="stage-scan" class="stage stage--scan" hidden>
     <div class="viewport" id="viewport">
-      <video id="video" playsinline muted autoplay></video>
+      <video id="video" playsinline webkit-playsinline muted autoplay disablepictureinpicture></video>
       <div class="reticle" id="reticle" aria-hidden="true">
         <i class="reticle__c reticle__c--tl"></i><i class="reticle__c reticle__c--tr"></i>
         <i class="reticle__c reticle__c--bl"></i><i class="reticle__c reticle__c--br"></i>

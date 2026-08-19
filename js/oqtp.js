@@ -200,6 +200,12 @@ function sampleDegree(cdf, r) {
     K travels in the metadata frame, so both sides pick the same schedule
     without a single extra byte on the wire.                               */
 const ML_SAFE_K = 1500;
+/*  Below this, heavy droplets stop being distinguishable: every degree in the
+    ladder caps to K, so each droplet is the XOR of nearly all the chunks —
+    the same equation over and over, carrying no new information. A handful of
+    chunks is better served by the mixed schedule, which still produces low
+    degrees.  */
+const SMALL_K = 32;
 const DEGREE_LADDER = [1, 2, 2, 3, 4, 6, 9, 14, 21, 32, 48, 72];
 const HEAVY_LADDER = [2, 3, 4, 6, 9, 14, 21, 32, 48, 72, 108, 162];
 
@@ -212,7 +218,7 @@ export function dropletIndexes(seed, K, cdf) {
   const step = seed - K;
   const rnd = mulberry32((seed ^ 0x9e3779b9) >>> 0);
   let d;
-  if (K <= ML_SAFE_K) {
+  if (K > SMALL_K && K <= ML_SAFE_K) {
     d = HEAVY_LADDER[step % HEAVY_LADDER.length];
   } else {
     d = step % 2 === 0 ? sampleDegree(cdf, rnd()) : DEGREE_LADDER[step % DEGREE_LADDER.length];
